@@ -301,7 +301,7 @@ def main() -> int:
     print("then in PeOS's terminal:")
     print("    mkdir /games")
     print("    mkdir /games/diablo2")
-    print("    mount ahci0p1 /games/diablo2 fat32      (a USB stick: usb-msdp1)")
+    print("    mount ahci0p1 /games/diablo2 fat32      (a USB stick: usb)")
     print("and open Diablo II from the app manager.")
     return 0
 
