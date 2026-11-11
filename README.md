@@ -64,7 +64,7 @@ mkdir /games/diablo2
 mount ahci0p1 /games/diablo2 fat32
 ```
 
-(on a USB stick the last line is `mount usb-msdp1 /games/diablo2 fat32`).
+(on a USB stick the last line is `mount usb /games/diablo2 fat32`).
 Then open **Diablo II** from the app manager. Your characters and settings
 are saved in PeOS (`/starlight/config/d2d`), not on the data disk.
 

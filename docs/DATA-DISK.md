@@ -71,7 +71,7 @@ Add a disk from the existing image, bus **SATA**.
 
 On a real computer you can skip the image: format a USB stick (4 GB or
 more) as **FAT32** and copy the files of the table above to it, at the top
-level, not in a folder. In PeOS the stick's partition is `usb-msdp1`.
+level, not in a folder. In PeOS the stick is `usb` (the first USB disk).
 
 Writing `d2data.img` to a stick (Balena Etcher, Rufus in DD mode, `dd`)
 works too.
@@ -86,7 +86,7 @@ mkdir /games/diablo2
 mount ahci0p1 /games/diablo2 fat32
 ```
 
-(`usb-msdp1` for a USB stick). Then open Diablo II from the app manager.
+(`usb` for a USB stick). Then open Diablo II from the app manager.
 `mount` says `mount: ok` when it worked.
 
 ## If something goes wrong
