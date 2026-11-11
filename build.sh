@@ -3,7 +3,6 @@
 #
 #   ./build.sh            everything; the app ends up in out/d2d.app
 #   ./build.sh check      only check that the tools it needs are installed
-#   ./build.sh store      after a build: the bundle and its texts for PeStore
 #   ./build.sh clean      start over (keeps the downloads)
 #
 # Linux (also WSL on Windows) and macOS. The first build takes a while
@@ -351,31 +350,11 @@ all() {
     echo "  PeOS SDK $(cat "$(kit_dir)/sdk/VERSION") (Starlight App Kit), d2decomped ${D2D_COMMIT:0:7}"
 }
 
-# For PeStore: out/d2d.app.tar (the bundle as appget and PeStore take it) and
-# out/store/ (bundle/app.ini and resources/: what the Starlight App Kit's
-# scripts/publish_app.py reads for the catalog: version, category, texts).
-store() {
-    [ -f "$OUT/d2d.app/app.bin" ] || die "no $OUT/d2d.app yet: run ./build.sh first"
-    [ -f "$(kit_dir)/scripts/pack_app.py" ] || checkout "$KIT_REPO" "$KIT_COMMIT" "$(kit_dir)" /nonexistent
-    python3 "$(kit_dir)/scripts/pack_app.py" "$OUT/d2d.app" "$OUT/d2d.app.tar"
-    rm -rf "$OUT/store" && mkdir -p "$OUT/store/bundle"
-    cp "$OUT/d2d.app/app.ini" "$OUT/store/bundle/app.ini"
-    cp -R "$OUT/d2d.app/resources" "$OUT/store/resources"
-    if compgen -G "$REPO/port/store/*.png" >/dev/null; then
-        mkdir -p "$OUT/store/store" && cp "$REPO/port/store/"*.png "$OUT/store/store/"
-    fi
-    echo "Ready for PeStore: $OUT/d2d.app.tar and $OUT/store"
-    echo "Publish it with the Starlight App Kit (the store's key and catalog are the publisher's):"
-    echo "    python3 scripts/publish_app.py --app-id d2d --app-dir \"$OUT/store\" \\"
-    echo "        --tar \"$OUT/d2d.app.tar\" --store <store folder> --key <store key>"
-}
-
 case "${1:-all}" in
     all) all ;;
     check) check ;;
-    store) store ;;
     clean) rm -rf "$W/src" "$W/b-binutils" "$W/b-gcc" "$W/toolchain" "$W/sysroot" "$W/deps" "$W/platform" \
                "$W/ffmpeg-build" "$W/ffmpeg-peos" "$W/game" "$W"/.done-* "$OUT"
            echo "Cleaned (the downloads in $W/dl are kept)." ;;
-    *) echo "usage: $0 [all|check|store|clean]"; exit 2 ;;
+    *) echo "usage: $0 [all|check|clean]"; exit 2 ;;
 esac
