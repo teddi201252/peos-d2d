@@ -1,0 +1,627 @@
+diff --git a/apps/CMakeLists.txt b/apps/CMakeLists.txt
+index a395e05..87faa77 100644
+--- a/apps/CMakeLists.txt
++++ b/apps/CMakeLists.txt
+@@ -7,6 +7,12 @@ if(NOT APPLE)
+     set(CMAKE_INSTALL_BINDIR ".")
+ endif()
+ set(QT_DEPLOY_FORCE_ADJUST_RPATHS OFF)
++if(CMAKE_SYSTEM_NAME STREQUAL "PeOS")
++    # PeOS: d2d alone, no launcher (Qt) nor d2proxy; the port makes the app
++    # (userland/ports/d2decomped), so no packaging either
++    add_subdirectory(d2d)
++    return()
++endif()
+ add_subdirectory(launcher)
+ add_subdirectory(d2d)
+ if(NOT D2D_FLATPAK)
+diff --git a/apps/d2d/CMakeLists.txt b/apps/d2d/CMakeLists.txt
+index 9f73be0..d6d0a9e 100644
+--- a/apps/d2d/CMakeLists.txt
++++ b/apps/d2d/CMakeLists.txt
+@@ -10,13 +10,18 @@ find_package(OpenAL REQUIRED)
+ # then caches between builds; that module installs the licenses itself.
+ set(D2D_SENTRY_PREFIX "" CACHE PATH
+     "Use the static crashpad Sentry Native installed here instead of building it (Flatpak)")
+-if(D2D_SENTRY_PREFIX)
++if(CMAKE_SYSTEM_NAME STREQUAL "PeOS")
++    # PeOS: no crash reports (Sentry, Crashpad, curl)
++    set(d2d_sentry "")
++elseif(D2D_SENTRY_PREFIX)
++    set(d2d_sentry sentry)
+     if(NOT D2D_FLATPAK)
+         message(FATAL_ERROR "D2D_SENTRY_PREFIX is for the Flatpak: the packages ship crashpad_handler from this build")
+     endif()
+     find_package(sentry CONFIG REQUIRED PATHS "${D2D_SENTRY_PREFIX}" NO_DEFAULT_PATH)
+     add_library(sentry ALIAS sentry::sentry)
+ else()
++    set(d2d_sentry sentry)
+     set(SENTRY_BACKEND crashpad CACHE STRING "Sentry crash-reporting backend" FORCE)
+     set(SENTRY_BUILD_SHARED_LIBS OFF CACHE BOOL "Build Sentry Native statically" FORCE)
+     set(SENTRY_BUILD_TESTS OFF CACHE BOOL "Build Sentry Native tests" FORCE)
+@@ -274,13 +279,18 @@ add_executable(d2d
+ # The source dir too: a file in a subdirectory (devctl/, town/) includes
+ # the client's headers by name, as the files here do.
+ target_include_directories(d2d PRIVATE "${CMAKE_CURRENT_BINARY_DIR}" "${CMAKE_CURRENT_SOURCE_DIR}")
++if(CMAKE_SYSTEM_NAME STREQUAL "PeOS")
++    target_include_directories(d2d PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/peos")   # sentry.h: no crash reports
++endif()
+ # The version reaches main.cpp through build_info.hpp, not a define: a
+ # define changes every commit and misses ccache for all of d2d's sources.
+-target_compile_definitions(d2d PRIVATE D2D_WITH_SENTRY)
++if(d2d_sentry)
++    target_compile_definitions(d2d PRIVATE D2D_WITH_SENTRY)
++endif()
+ target_link_libraries(d2d PRIVATE
+     ${ffmpeg_target}   # first: its headers before a system FFmpeg's in /opt/homebrew/include
+     game net mpq d2s rules drlg txt userdir cof compcode dc6 dcc ds1 dt1 font palette tbl devctl screenshot switches
+-    SDL3::SDL3 CLI11::CLI11 ${OPENAL_LIBRARY} sentry)
++    SDL3::SDL3 CLI11::CLI11 ${OPENAL_LIBRARY} ${d2d_sentry})
+ target_include_directories(d2d SYSTEM PRIVATE ${OPENAL_INCLUDE_DIR})
+ # start_sentry looks for the handler beside d2d; the packages put it there,
+ # this does for the build tree (sentry_init fails without it).
+diff --git a/apps/d2d/main.cpp b/apps/d2d/main.cpp
+index bfd6f63..bcfc948 100644
+--- a/apps/d2d/main.cpp
++++ b/apps/d2d/main.cpp
+@@ -35,6 +35,9 @@
+ #include "ui.hpp"
+ #include "video.hpp"
+ #include "watchdog.hpp"
++#ifdef __peos__
++#include "peos/no_data.hpp"
++#endif
+ #include "window.hpp"
+ #include "world_view.hpp"
+ 
+@@ -1875,7 +1878,13 @@ int main(int argc, char** argv) {
+                                                           fs::current_path(cwd_ec), cfg["data"]);
+         if (!found.error.empty()) {
+             d2d::log::error("{}", found.error);
++#ifdef __peos__
++            // PeOS: a window that says where the MPQs go; OK ends the app well
++            d2d::peos_port::show_no_data();
++            return 0;
++#else
+             return 1;
++#endif
+         }
+         data_dir = found.dir;
+         d2d::log::info("  Data dir: {} ({})", data_dir.string(), found.from);
+@@ -1890,6 +1899,12 @@ int main(int argc, char** argv) {
+     auto scene = load_scene(data_dir, patch_layer);   // the menus' part; nullopt if the MPQs won't load
+     // Nothing to run without them: say so (the log has which MPQ and why)
+     // rather than go on to a game with no data.
++#ifdef __peos__
++    if (!scene && !fs::exists(data_dir / "d2data.mpq")) {   // no MPQs at all: where they go, as above
++        d2d::peos_port::show_no_data();
++        return 0;
++    }
++#endif
+     if (!scene) {
+         const auto message = std::format("Couldn't load the Diablo II game data from\n{}\n\n"
+                                          "Check that its MPQ files are complete, readable copies from Diablo II. "
+diff --git a/apps/d2d/peos/no_data.hpp b/apps/d2d/peos/no_data.hpp
+new file mode 100644
+index 0000000..0a7f7e1
+--- /dev/null
++++ b/apps/d2d/peos/no_data.hpp
+@@ -0,0 +1,66 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// PeOS only: the window d2d.app shows when the game's MPQs are not in
++// /games/diablo2 (d2decomped port, phase 6). Where they go and how to copy
++// them there, in the language Starlight has (the bundle's resources/<lang>/
++// String.lang), and OK, which closes the app. A Starlight page (SLUI), not
++// the game's: nothing of the game is loaded.
++#pragma once
++
++#include <peos/peos.h>
++#include <peos/starlight_ui.h>
++
++#include <cstdint>
++#include <string>
++
++namespace d2d::peos_port {
++
++inline void show_no_data() {
++    constexpr std::uint32_t kOk = 1;
++    constexpr std::uint32_t kLines = 10;
++    std::uint32_t w = 0, h = 0;
++    bool dirty = true, done = false;
++    const auto draw = [&] {
++        slui_begin_frame();
++        if (w && h) {
++            slui_rect_theme(0, 0, w, h, SLUI_COLOR_BG_CANVAS);
++            const std::uint32_t left = 32;
++            std::uint32_t y = 28;
++            slui_set_font_px(24);
++            slui_label_theme(left, y, SLUI_COLOR_TEXT_PRIMARY, slui_text("nodata.title"));
++            slui_set_font_px(16);
++            y += 52;
++            for (std::uint32_t i = 1; i <= kLines; ++i) {
++                const std::string key = "nodata." + std::to_string(i);
++                // a gap before the steps and before the files' names
++                if (i == 5 || i == 9) y += 14;
++                slui_label_theme(left, y, i >= 6 && i <= 8 ? SLUI_COLOR_TEXT_PRIMARY : SLUI_COLOR_TEXT_SECONDARY,
++                                 slui_text(key.c_str()));
++                y += 26;
++            }
++            const std::uint32_t bw = 120, bh = 40;
++            slui_button_primary(kOk, w > bw + left ? w - bw - left : 0, h > bh + 24 ? h - bh - 24 : 0, bw, bh, 1,
++                                slui_text("nodata.ok"));
++            slui_focus(kOk);
++        }
++        slui_end_frame();
++        dirty = false;
++    };
++    draw();   // says hello: Starlight answers with the size and the language
++    while (!done) {
++        slui_event_t ev;
++        while (slui_poll_event(&ev)) {
++            if (ev.type == SLUI_EVENT_RESIZE || ev.type == SLUI_EVENT_LANGUAGE) {
++                slui_viewport(&w, &h);
++                dirty = true;
++            } else if (ev.type == SLUI_EVENT_BUTTON && ev.id == kOk) {
++                done = true;
++            } else if (ev.type == SLUI_EVENT_KEY_DOWN && (ev.keycode == PEOS_KEY_ENTER || ev.keycode == PEOS_KEY_ESC)) {
++                done = true;
++            }
++        }
++        if (dirty && !done) draw();
++        peos_sleep(2);
++    }
++}
++
++}  // namespace d2d::peos_port
+diff --git a/apps/d2d/peos/sentry.h b/apps/d2d/peos/sentry.h
+new file mode 100644
+index 0000000..f3ba34b
+--- /dev/null
++++ b/apps/d2d/peos/sentry.h
+@@ -0,0 +1,46 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// PeOS has no Sentry (no crash reports, no Crashpad, no curl): the calls
++// main.cpp makes, doing nothing. sentry_options_new gives none, so
++// start_sentry says crash reporting is unavailable and the game goes on.
++#pragma once
++
++#include <cstddef>
++#include <cstdint>
++
++struct sentry_options_s;
++typedef struct sentry_options_s sentry_options_t;
++struct sentry_attachment_s;
++typedef struct sentry_attachment_s sentry_attachment_t;
++typedef union { std::uint64_t _bits; double _double; } sentry_value_t;
++typedef struct { char bytes[16]; } sentry_uuid_t;
++
++inline sentry_options_t* sentry_options_new() { return nullptr; }
++inline void sentry_options_set_dsn(sentry_options_t*, const char*) {}
++inline void sentry_options_set_release(sentry_options_t*, const char*) {}
++inline void sentry_options_set_auto_session_tracking(sentry_options_t*, int) {}
++inline void sentry_options_set_database_path(sentry_options_t*, const char*) {}
++inline void sentry_options_set_handler_path(sentry_options_t*, const char*) {}
++inline void sentry_options_set_debug(sentry_options_t*, int) {}
++inline int sentry_init(sentry_options_t*) { return 1; }
++inline int sentry_close() { return 0; }
++inline int sentry_is_enabled() { return 0; }
++inline void sentry_crash() {}
++
++inline sentry_value_t sentry_value_new_null() { return sentry_value_t{ 0 }; }
++inline sentry_value_t sentry_value_new_object() { return sentry_value_new_null(); }
++inline sentry_value_t sentry_value_new_string(const char*) { return sentry_value_new_null(); }
++inline sentry_value_t sentry_value_new_string_n(const char*, std::size_t) { return sentry_value_new_null(); }
++inline sentry_value_t sentry_value_new_int32(std::int32_t) { return sentry_value_new_null(); }
++inline sentry_value_t sentry_value_new_breadcrumb(const char*, const char*) { return sentry_value_new_null(); }
++inline int sentry_value_set_by_key(sentry_value_t, const char*, sentry_value_t) { return 1; }
++inline int sentry_value_is_null(sentry_value_t) { return 1; }
++inline void sentry_add_breadcrumb(sentry_value_t) {}
++inline void sentry_set_context(const char*, sentry_value_t) {}
++inline void sentry_set_extra(const char*, sentry_value_t) {}
++inline void sentry_set_tag(const char*, const char*) {}
++
++inline sentry_value_t sentry_attachment_from_bytes(const char*, std::size_t, const char*) { return sentry_value_new_null(); }
++inline void sentry_attachment_set_content_type(sentry_value_t, const char*) {}
++inline sentry_uuid_t sentry_add_attachment(sentry_value_t) { return sentry_uuid_t{}; }
++inline void sentry_remove_attachment(sentry_uuid_t) {}
++inline int sentry_uuid_is_nil(const sentry_uuid_t*) { return 1; }
+diff --git a/components/devctl/devctl.cpp b/components/devctl/devctl.cpp
+index c4a8d4d..8f79282 100644
+--- a/components/devctl/devctl.cpp
++++ b/components/devctl/devctl.cpp
+@@ -28,8 +28,8 @@ std::vector<std::string> tokenize(std::string_view line) {
+ 
+ }  // namespace d2d::devctl
+ 
+-#ifdef _WIN32
+-// Windows: no AF_UNIX; keep call sites portable with a warn-once stub.
++#if defined(_WIN32) || defined(__peos__)
++// Windows, PeOS: no AF_UNIX; keep call sites portable with a warn-once stub.
+ namespace d2d::devctl {
+ 
+ struct Channel::Impl { bool warned = false; };
+@@ -39,7 +39,7 @@ Channel::~Channel() { delete impl_; }
+ 
+ void Channel::listen(const std::string& path) {
+     if (!path.empty() && !impl_->warned) {
+-        std::fprintf(stderr, "[devctl] not supported on Windows (path=%s)\n",
++        std::fprintf(stderr, "[devctl] not supported here (path=%s)\n",
+                      path.c_str());
+         impl_->warned = true;
+     }
+@@ -251,4 +251,4 @@ void Channel::close() {
+ 
+ }  // namespace d2d::devctl
+ 
+-#endif  // _WIN32
++#endif  // _WIN32 || __peos__
+diff --git a/components/mpq/CMakeLists.txt b/components/mpq/CMakeLists.txt
+index 51ccf04..883b418 100644
+--- a/components/mpq/CMakeLists.txt
++++ b/components/mpq/CMakeLists.txt
+@@ -64,7 +64,11 @@ else()
+         endif()
+         target_compile_options(storm PRIVATE /W0)
+     else()
+-        target_compile_options(storm PRIVATE -w)
++        # -fno-strict-aliasing: StormLib's Huffman decoder (huff.cpp, the
++        # WAVs' packing) reads memory through incompatible types; GCC 16 at
++        # -O3 then decodes 758 of d2sfx.mpq's 2360 files wrong (seen on PeOS,
++        # where the d2decomped port builds it; fine at -O2 or with this flag).
++        target_compile_options(storm PRIVATE -w -fno-strict-aliasing)
+     endif()
+     # Optimised in every build: a Debug d2d spent ~1 s of its start in StormLib
+     # at -O0 (listfiles, decompression). (MSVC's Debug /RTC1 refuses /O2.)
+diff --git a/components/net/CMakeLists.txt b/components/net/CMakeLists.txt
+index 5badac9..74e96c7 100644
+--- a/components/net/CMakeLists.txt
++++ b/components/net/CMakeLists.txt
+@@ -3,7 +3,12 @@
+ # session, the TCP connection and the net log.
+ add_subdirectory(d2gs)
+ 
+-add_library(net STATIC join.cpp tcp.cpp net_log.cpp)
++# PeOS: no sockets until its network port (d2decomped port plan, phase 7)
++if(CMAKE_SYSTEM_NAME STREQUAL "PeOS")
++    add_library(net STATIC join.cpp tcp_peos.cpp net_log.cpp)
++else()
++    add_library(net STATIC join.cpp tcp.cpp net_log.cpp)
++endif()
+ target_include_directories(net PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+ target_link_libraries(net PUBLIC d2gs)
+ target_compile_features(net PUBLIC cxx_std_${CMAKE_CXX_STANDARD})
+diff --git a/components/net/tcp_peos.cpp b/components/net/tcp_peos.cpp
+new file mode 100644
+index 0000000..b72131b
+--- /dev/null
++++ b/components/net/tcp_peos.cpp
+@@ -0,0 +1,130 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// tcp.hpp on PeOS (d2decomped port plan, phase 7): a connection over PeOS's
++// own TCP (peos/net.h, netd), to join a game.exe host on the LAN. A host
++// name is resolved by netd's DNS. Listening (d2proxy's TcpListener) waits
++// for netd to listen: it says so.
++#include "tcp.hpp"
++
++#include <peos/net.h>
++
++#include <cstring>
++#include <memory>
++#include <utility>
++
++namespace d2d::net {
++
++namespace {
++
++// What socket_ holds on PeOS: netd's connection and the bytes of a piece read
++// in part (net_tcp_read keeps them for the next call).
++struct Conn {
++    std::int64_t conn = -1;
++    net_tcp_reader_t reader{};
++};
++
++auto conn_of(std::intptr_t socket) -> Conn* { return reinterpret_cast<Conn*>(socket); }
++
++auto close_conn(std::intptr_t socket) -> void {
++    if (socket == -1) return;
++    std::unique_ptr<Conn> owned(conn_of(socket));
++    if (owned->conn >= 0) (void)peos_fclose(static_cast<std::uint64_t>(owned->conn));
++}
++
++auto net_error(std::int64_t code) -> std::string {
++    switch (code) {
++        case NET_ERR_TIMEOUT: return "timed out";
++        case NET_ERR_REFUSED: return "refused";
++        case NET_ERR_NO_ADDRESS: return "no network address yet";
++        case NET_ERR_UNREACHABLE: return "host unreachable";
++        case NET_ERR_NOT_FOUND: return "no such host";
++        case NET_ERR_BUSY: return "too many connections";
++        case NET_ERR_DENIED: return "not allowed (the app needs the network capability)";
++        default: return "network error " + std::to_string(code);
++    }
++}
++
++constexpr std::uint64_t kNsPerMs = 1'000'000ull;
++
++} // namespace
++
++auto TcpConnection::connect(const std::string& host, std::uint16_t port, int timeout_ms) -> std::expected<TcpConnection, std::string> {
++    std::uint8_t ip[4] = {};
++    const std::uint64_t timeout_ns = std::uint64_t(timeout_ms > 0 ? timeout_ms : 0) * kNsPerMs;
++    if (net_parse_ipv4(host.c_str(), ip) != 0) {
++        const int resolved = net_resolve(host.c_str(), ip, timeout_ns);
++        if (resolved != NET_OK) return std::unexpected(host + ": " + net_error(resolved));
++    }
++    const std::int64_t conn = net_tcp_connect(ip, port, timeout_ns);
++    if (conn < 0) return std::unexpected("connect " + host + ":" + std::to_string(port) + ": " + net_error(conn));
++    auto owned = std::make_unique<Conn>();
++    owned->conn = conn;
++    net_tcp_reader_init(&owned->reader, conn);
++    return TcpConnection(reinterpret_cast<std::intptr_t>(owned.release()));
++}
++
++TcpConnection::TcpConnection(TcpConnection&& other) noexcept : socket_(std::exchange(other.socket_, -1)) {}
++
++auto TcpConnection::operator=(TcpConnection&& other) noexcept -> TcpConnection& {
++    if (this != &other) {
++        close_conn(socket_);
++        socket_ = std::exchange(other.socket_, -1);
++    }
++    return *this;
++}
++
++TcpConnection::~TcpConnection() { close_conn(socket_); }
++
++auto TcpConnection::send(std::span<const std::uint8_t> bytes) -> std::expected<void, std::string> {
++    if (socket_ == -1) return std::unexpected("send: not connected");
++    if (bytes.empty()) return {};
++    const std::int64_t sent = net_tcp_send(conn_of(socket_)->conn, bytes.data(), bytes.size());
++    if (sent != std::int64_t(bytes.size())) return std::unexpected("send: connection broken");
++    return {};
++}
++
++auto TcpConnection::receive(int timeout_ms) -> std::expected<d2gs::Bytes, std::string> {
++    if (socket_ == -1) return std::unexpected("receive: not connected");
++    Conn* c = conn_of(socket_);
++    d2gs::Bytes out;
++    std::uint8_t piece[PEOS_CHANNEL_MSG_MAX];
++    // the first wait is the caller's; then whatever is there already
++    std::uint64_t wait_ns = std::uint64_t(timeout_ms > 0 ? timeout_ms : 0) * kNsPerMs;
++    for (;;) {
++        const std::int64_t got = net_tcp_read(&c->reader, piece, sizeof piece, wait_ns);
++        if (got == NET_ERR_TIMEOUT) break;
++        if (got == 0) {
++            if (!out.empty()) break;   // the end comes after what arrived with it
++            return std::unexpected("the host closed the connection");
++        }
++        if (got < 0) {
++            if (!out.empty()) break;
++            return std::unexpected("receive: connection broken");
++        }
++        out.insert(out.end(), piece, piece + got);
++        wait_ns = 0;
++        if (out.size() >= 64 * 1024) break;   // a frame's worth: the rest at the next call
++    }
++    return out;
++}
++
++auto TcpListener::listen(std::uint16_t, const std::string&) -> std::expected<TcpListener, std::string> {
++    return std::unexpected("PeOS: netd cannot listen yet (joining a host works)");
++}
++TcpListener::TcpListener(TcpListener&& other) noexcept : socket_(std::exchange(other.socket_, -1)) {}
++auto TcpListener::operator=(TcpListener&& other) noexcept -> TcpListener& {
++    socket_ = std::exchange(other.socket_, -1);
++    return *this;
++}
++TcpListener::~TcpListener() = default;
++auto TcpListener::accept(int, std::string*) -> std::expected<std::optional<TcpConnection>, std::string> {
++    return std::unexpected("PeOS: netd cannot listen yet");
++}
++
++auto own_address() -> std::string {
++    peos_netcfg_t cfg{};
++    if (net_config_get(&cfg) != NET_OK) return "0.0.0.0";
++    return std::to_string(cfg.ip[0]) + "." + std::to_string(cfg.ip[1]) + "." + std::to_string(cfg.ip[2]) + "." +
++           std::to_string(cfg.ip[3]);
++}
++
++} // namespace d2d::net
+diff --git a/components/userdir/userdir.hpp b/components/userdir/userdir.hpp
+index 250bbee..dcb575f 100644
+--- a/components/userdir/userdir.hpp
++++ b/components/userdir/userdir.hpp
+@@ -6,9 +6,11 @@
+ //   user dir    macOS    ~/Library/Preferences/<app>/
+ //               Linux    $XDG_CONFIG_HOME/<app>/ (normally ~/.config/<app>/)
+ //               Windows  Documents\My Games\<app>
++//               PeOS     /starlight/config/<app>/
+ //   global dir  macOS    /Library/Preferences/<app>/
+ //               Linux    /etc/<app>/
+ //               Windows  Program Files\<app>
++//               PeOS     /system/config/<app>/
+ // A few free functions, not thirdeye's FixedPath template: d2d's cfgs use
+ // no ?user? / ?global? tokens.
+ #pragma once
+@@ -36,7 +38,9 @@ namespace d2d::userdir {
+ namespace fs = std::filesystem;
+ 
+ inline fs::path user_dir(std::string_view app) {
+-#if defined(_WIN32)
++#if defined(__peos__)
++    return fs::path("/starlight/config") / app;   // PeOS: where Starlight's apps keep theirs
++#elif defined(_WIN32)
+     fs::path base(".");
+     PWSTR docs = nullptr;
+     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, KF_FLAG_CREATE, nullptr, &docs)))
+@@ -61,7 +65,9 @@ inline fs::path user_dir(std::string_view app) {
+ }
+ 
+ inline fs::path global_dir(std::string_view app) {
+-#if defined(_WIN32)
++#if defined(__peos__)
++    return fs::path("/system/config") / app;
++#elif defined(_WIN32)
+     const char* program_files = std::getenv("ProgramFiles");
+     return fs::path(program_files ? program_files : ".") / app;
+ #elif defined(__APPLE__)
+diff --git a/tests/CMakeLists.txt b/tests/CMakeLists.txt
+index e7c2a12..9d8c505 100644
+--- a/tests/CMakeLists.txt
++++ b/tests/CMakeLists.txt
+@@ -23,8 +23,16 @@ set(d2d_skip_code 77)
+ #   // test-includes: apps/d2d        (extra include dirs, from the repo root)
+ file(GLOB_RECURSE d2d_test_sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/test_*.cpp)
+ set(d2d_cpp_tests "")
++# PeOS: the tests of the socket channels wait for its network port
++set(d2d_tests_not_here "")
++if(CMAKE_SYSTEM_NAME STREQUAL "PeOS")
++    set(d2d_tests_not_here test_devctl test_net)
++endif()
+ foreach(test_source ${d2d_test_sources})
+     get_filename_component(name ${test_source} NAME_WE)
++    if (name IN_LIST d2d_tests_not_here)
++        continue()
++    endif()
+     file(STRINGS ${test_source} directives REGEX "^// test-(links|sources|includes):")
+     if (NOT directives MATCHES "test-links:")
+         message(FATAL_ERROR "${name}.cpp: no `// test-links:` line under the SPDX line (tests/CMakeLists.txt)")
+@@ -33,6 +41,9 @@ foreach(test_source ${d2d_test_sources})
+         message(FATAL_ERROR "${test_source}: another test is already named ${name}")
+     endif()
+     add_executable(${name} ${test_source})
++    if(CMAKE_SYSTEM_NAME STREQUAL "PeOS")
++        target_sources(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/peos_env.cpp)
++    endif()
+     # tests/ itself too: a test in a subdirectory includes the shared *_cases.inc by name.
+     target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+     target_compile_definitions(${name} PRIVATE D2D_TEST_SKIPPED=${d2d_skip_code})
+diff --git a/tests/peos_env.cpp b/tests/peos_env.cpp
+new file mode 100644
+index 0000000..8402b01
+--- /dev/null
++++ b/tests/peos_env.cpp
+@@ -0,0 +1,15 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// PeOS only (tests/CMakeLists.txt adds it to every test there): PeOS hands no
++// environment to a program it starts, so when /games/diablo2 (PeOS's fixed
++// folder for the game's data) holds it, that is D2_MPQ_DIR, unless already set.
++#include <cstdlib>
++#include <filesystem>
++#include <system_error>
++
++namespace {
++const bool kMpqDirSet = [] {
++    std::error_code error;
++    return std::filesystem::exists("/games/diablo2/d2data.mpq", error) &&
++           ::setenv("D2_MPQ_DIR", "/games/diablo2", 0) == 0;
++}();
++}
+diff --git a/tests/test_peos_mpq.cpp b/tests/test_peos_mpq.cpp
+new file mode 100644
+index 0000000..f72197a
+--- /dev/null
++++ b/tests/test_peos_mpq.cpp
+@@ -0,0 +1,103 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// test-links: mpq
++// StormLib with no game data (written for the PeOS port, whose StormLib
++// reads and writes through PeOS's own file calls; runs anywhere): an MPQ made
++// here with a zlib, a bzip2 and a stored file, closed, opened again read-only
++// and read back byte for byte.
++#include <StormLib.h>
++
++#include <cstdint>
++#include <cstdio>
++#include <cstring>
++#include <filesystem>
++#include <string>
++#include <system_error>
++#include <vector>
++
++namespace fs = std::filesystem;
++
++static int failures = 0;
++static void check(bool ok, const char* what) {
++    std::printf("%s: %s\n", ok ? "OK" : "FAIL", what);
++    if (!ok) failures++;
++}
++
++struct Entry {
++    const char* name;
++    DWORD compression;   // 0: stored
++    std::vector<unsigned char> bytes;
++};
++
++static std::vector<unsigned char> pattern(std::size_t size, unsigned seed) {
++    std::vector<unsigned char> bytes(size);
++    std::uint32_t state = seed;
++    for (std::size_t index = 0; index < size; index++) {
++        state = state * 1103515245u + 12345u;
++        // runs of the same byte: something to compress
++        bytes[index] = static_cast<unsigned char>((index / 64) % 7 == 0 ? state >> 24 : (index / 512) & 0xff);
++    }
++    return bytes;
++}
++
++int main() {
++    std::error_code error;
++    fs::path dir = fs::temp_directory_path(error);
++    if (error) dir = ".";
++    const fs::path archive = dir / "d2d_test_peos.mpq";
++    fs::remove(archive, error);
++
++    std::vector<Entry> entries = {
++        { "data\\zlib.bin", MPQ_COMPRESSION_ZLIB, pattern(300000, 1) },
++        { "data\\bzip2.bin", MPQ_COMPRESSION_BZIP2, pattern(150000, 2) },
++        { "data\\stored.txt", 0, {} },
++    };
++    const std::string text = "Stay awhile and listen.\n";
++    entries[2].bytes.assign(text.begin(), text.end());
++
++    HANDLE mpq = nullptr;
++    check(SFileCreateArchive(archive.string().c_str(), MPQ_CREATE_ARCHIVE_V2 | MPQ_CREATE_LISTFILE, 16, &mpq),
++          "SFileCreateArchive");
++    if (!mpq) return 1;
++    for (const auto& entry : entries) {
++        HANDLE file = nullptr;
++        const DWORD flags = entry.compression ? MPQ_FILE_COMPRESS : 0;
++        bool ok = SFileCreateFile(mpq, entry.name, 0, DWORD(entry.bytes.size()), 0, flags, &file);
++        ok = ok && SFileWriteFile(file, entry.bytes.data(), DWORD(entry.bytes.size()), entry.compression);
++        ok = ok && SFileFinishFile(file);
++        check(ok, entry.name);
++    }
++    check(SFileCloseArchive(mpq), "SFileCloseArchive");
++    check(fs::is_regular_file(archive) && fs::file_size(archive) > 0, "the archive is on disk");
++
++    mpq = nullptr;
++    check(SFileOpenArchive(archive.string().c_str(), 0, STREAM_FLAG_READ_ONLY, &mpq), "SFileOpenArchive, read-only");
++    if (!mpq) return 1;
++    for (const auto& entry : entries) {
++        HANDLE file = nullptr;
++        if (!SFileOpenFileEx(mpq, entry.name, SFILE_OPEN_FROM_MPQ, &file)) {
++            check(false, "SFileOpenFileEx");
++            continue;
++        }
++        const DWORD size = SFileGetFileSize(file, nullptr);
++        std::vector<unsigned char> back(size);
++        DWORD read = 0;
++        const bool ok = SFileReadFile(file, back.data(), size, &read, nullptr);
++        DWORD compressed = 0;
++        SFileGetFileInfo(file, SFileInfoCompressedSize, &compressed, sizeof(compressed), nullptr);
++        SFileCloseFile(file);
++        check(ok && read == entry.bytes.size() && back == entry.bytes, "read back byte for byte");
++        if (entry.compression) check(compressed < size, "stored smaller than it is (compressed)");
++    }
++    SFILE_FIND_DATA found;
++    int listed = 0;
++    if (HANDLE find = SFileFindFirstFile(mpq, "data\\*", &found, nullptr)) {
++        do listed++;
++        while (SFileFindNextFile(find, &found));
++        SFileFindClose(find);
++    }
++    check(listed == 3, "the listfile names the three");
++    check(SFileCloseArchive(mpq), "closed again");
++    fs::remove(archive, error);
++    if (failures == 0) std::printf("test_peos_mpq: ok\n");
++    return failures == 0 ? 0 : 1;
++}

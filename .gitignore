@@ -1,0 +1,5 @@
+build/
+out/
+*.img
+*.vdi
+__pycache__/

@@ -1,0 +1,15 @@
+# d2decomped on PeOS (English)
+# key=text, see peos/lang.h for the format.
+
+nodata.title=The game's files are not here yet
+nodata.1=Diablo II plays with your own copy of the game: the MPQ files
+nodata.2=of Diablo II and Lord of Destruction, patch 1.14d. They go in
+nodata.3=the folder /games/diablo2, on a PeOS installed on a disk
+nodata.4=(about 2 GB: the live session cannot hold them).
+nodata.5=To copy them, from a USB stick formatted as FAT32:
+nodata.6=1. Put the files in a folder named diablo2 on the stick.
+nodata.7=2. Plug it in and open Orbit:   mount usb0p1 /usb fat32
+nodata.8=3. Then:   mkdir /games   and   cp -r /usb/diablo2 /games
+nodata.9=The files: d2data, d2exp, d2char, d2sfx, d2speech, d2music,
+nodata.10=d2xmusic, d2xtalk, d2video, d2xvideo and patch_d2 (.mpq).
+nodata.ok=OK

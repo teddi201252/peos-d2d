@@ -1,0 +1,10 @@
+* text=auto
+*.sh text eol=lf
+build.sh text eol=lf
+*.bat text eol=crlf
+*.patch text eol=lf
+*.a binary
+*.o binary
+
+# StormLib's FileStream.cpp has CRLF lines: its patch keeps them (mixed endings)
+port/patches/stormlib/peos.patch -text
