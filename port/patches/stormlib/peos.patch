@@ -1,0 +1,260 @@
+diff --git a/src/FileStream.cpp b/src/FileStream.cpp
+index 39db0a0..bde529f 100644
+--- a/src/FileStream.cpp
++++ b/src/FileStream.cpp
+@@ -16,6 +16,10 @@
+ #define __STORMLIB_SELF__
+ #include "StormLib.h"
+ #include "StormCommon.h"
++
++#ifdef STORMLIB_PEOS
++#include <peos/peos.h>
++#endif
+ #include "FileStream.h"
+ 
+ #ifdef _MSC_VER
+@@ -126,6 +130,21 @@ static bool BaseFile_Create(TFileStream * pStream)
+     }
+ #endif
+ 
++#ifdef STORMLIB_PEOS
++    {
++        uint64_t fd = peos_fopen(pStream->szFileName, strlen(pStream->szFileName),
++                                 PEOS_O_CREAT | PEOS_O_TRUNC | PEOS_O_WRITE);
++        if((int64_t)fd < 0)
++        {
++            pStream->Base.File.hFile = INVALID_HANDLE_VALUE;
++            dwLastError = ERROR_ACCESS_DENIED;
++            return false;
++        }
++
++        pStream->Base.File.hFile = (HANDLE)(intptr_t)fd;
++    }
++#endif
++
+     // Reset the file size and position
+     pStream->Base.File.FileSize = 0;
+     pStream->Base.File.FilePos = 0;
+@@ -193,6 +212,35 @@ static bool BaseFile_Open(TFileStream * pStream, const TCHAR * szFileName, DWORD
+     }
+ #endif
+ 
++#ifdef STORMLIB_PEOS
++    {
++        // A file opened for writing can be read as well
++        uint64_t flags = (dwStreamFlags & STREAM_FLAG_READ_ONLY) ? PEOS_O_READ : PEOS_O_WRITE;
++        peos_stat_t st;
++        uint64_t fd;
++
++        if((int64_t)peos_stat(szFileName, strlen(szFileName), &st, sizeof(st)) < 0 || st.is_dir)
++        {
++            pStream->Base.File.hFile = INVALID_HANDLE_VALUE;
++            dwLastError = ERROR_FILE_NOT_FOUND;
++            return false;
++        }
++
++        fd = peos_fopen(szFileName, strlen(szFileName), flags);
++        if((int64_t)fd < 0)
++        {
++            pStream->Base.File.hFile = INVALID_HANDLE_VALUE;
++            dwLastError = ERROR_ACCESS_DENIED;
++            return false;
++        }
++
++        // FILETIME counts 100 ns from 1601; PeOS's times are ns from 1970
++        pStream->Base.File.FileTime = 0x019DB1DED53E8000ULL + st.mtime_ns / 100;
++        pStream->Base.File.FileSize = st.size;
++        pStream->Base.File.hFile = (HANDLE)(intptr_t)fd;
++    }
++#endif
++
+     // Reset the file position
+     pStream->Base.File.FilePos = 0;
+     return true;
+@@ -258,6 +306,36 @@ static bool BaseFile_Read(
+     }
+ #endif
+ 
++#ifdef STORMLIB_PEOS
++    {
++        uint64_t fd = (uint64_t)(intptr_t)pStream->Base.File.hFile;
++
++        if(ByteOffset != pStream->Base.File.FilePos)
++        {
++            if((int64_t)peos_fseek(fd, (size_t)ByteOffset) < 0)
++            {
++                dwLastError = ERROR_CAN_NOT_COMPLETE;
++                return false;
++            }
++            pStream->Base.File.FilePos = ByteOffset;
++        }
++
++        // A read may give less than asked before the end: read on
++        while(dwBytesRead < dwBytesToRead)
++        {
++            int64_t n = (int64_t)peos_fread(fd, (BYTE *)pvBuffer + dwBytesRead, (size_t)(dwBytesToRead - dwBytesRead));
++            if(n < 0)
++            {
++                dwLastError = ERROR_CAN_NOT_COMPLETE;
++                return false;
++            }
++            if(n == 0)
++                break;
++            dwBytesRead += (DWORD)n;
++        }
++    }
++#endif
++
+     // Increment the current file position by number of bytes read
+     // If the number of bytes read doesn't match to required amount, return false
+     pStream->Base.File.FilePos = ByteOffset + dwBytesRead;
+@@ -326,6 +404,55 @@ static bool BaseFile_Write(TFileStream * pStream, ULONGLONG * pByteOffset, const
+     }
+ #endif
+ 
++#ifdef STORMLIB_PEOS
++    {
++        uint64_t fd = (uint64_t)(intptr_t)pStream->Base.File.hFile;
++
++        if(ByteOffset != pStream->Base.File.FilePos)
++        {
++            // Past the end: PeOS seeks only inside a file, so the gap is filled
++            if(ByteOffset > pStream->Base.File.FileSize)
++            {
++                static const BYTE zeros[4096] = {0};
++                ULONGLONG at = pStream->Base.File.FileSize;
++                if((int64_t)peos_fseek(fd, (size_t)at) < 0)
++                {
++                    dwLastError = ERROR_CAN_NOT_COMPLETE;
++                    return false;
++                }
++                while(at < ByteOffset)
++                {
++                    size_t n = (ByteOffset - at) < sizeof(zeros) ? (size_t)(ByteOffset - at) : sizeof(zeros);
++                    if((int64_t)peos_fwrite(fd, zeros, n) != (int64_t)n)
++                    {
++                        dwLastError = ERROR_DISK_FULL;
++                        return false;
++                    }
++                    at += n;
++                }
++                pStream->Base.File.FileSize = at;
++            }
++            else if((int64_t)peos_fseek(fd, (size_t)ByteOffset) < 0)
++            {
++                dwLastError = ERROR_CAN_NOT_COMPLETE;
++                return false;
++            }
++            pStream->Base.File.FilePos = ByteOffset;
++        }
++
++        while(dwBytesWritten < dwBytesToWrite)
++        {
++            int64_t n = (int64_t)peos_fwrite(fd, (const BYTE *)pvBuffer + dwBytesWritten, (size_t)(dwBytesToWrite - dwBytesWritten));
++            if(n <= 0)
++            {
++                dwLastError = ERROR_DISK_FULL;
++                return false;
++            }
++            dwBytesWritten += (DWORD)n;
++        }
++    }
++#endif
++
+     // Increment the current file position by number of bytes read
+     pStream->Base.File.FilePos = ByteOffset + dwBytesWritten;
+ 
+@@ -381,6 +508,28 @@ static bool BaseFile_Resize(TFileStream * pStream, ULONGLONG NewFileSize)
+         return true;
+     }
+ #endif
++
++#ifdef STORMLIB_PEOS
++    {
++        // PeOS's files grow by writing; they shrink only when opened anew
++        // with truncate, which an open stream cannot do
++        if(NewFileSize > pStream->Base.File.FileSize)
++        {
++            ULONGLONG pos = pStream->Base.File.FilePos;
++            ULONGLONG last = NewFileSize - 1;
++            BYTE zero = 0;
++            if(!BaseFile_Write(pStream, &last, &zero, 1))
++                return false;
++            if((int64_t)peos_fseek((uint64_t)(intptr_t)pStream->Base.File.hFile, (size_t)pos) >= 0)
++                pStream->Base.File.FilePos = pos;
++            return true;
++        }
++        if(NewFileSize == pStream->Base.File.FileSize)
++            return true;
++        dwLastError = ERROR_NOT_SUPPORTED;
++        return false;
++    }
++#endif
+ }
+ 
+ // Gives the current file size
+@@ -423,6 +572,19 @@ static bool BaseFile_Replace(TFileStream * pStream, TFileStream * pNewStream)
+ 
+     return true;
+ #endif
++
++#ifdef STORMLIB_PEOS
++    // PeOS's rename does not replace an existing file
++    peos_unlink(pStream->szFileName, strlen(pStream->szFileName));
++    if((int64_t)peos_rename(pNewStream->szFileName, strlen(pNewStream->szFileName),
++                            pStream->szFileName, strlen(pStream->szFileName)) < 0)
++    {
++        dwLastError = ERROR_ACCESS_DENIED;
++        return false;
++    }
++
++    return true;
++#endif
+ }
+ 
+ static void BaseFile_Close(TFileStream * pStream)
+@@ -436,6 +598,10 @@ static void BaseFile_Close(TFileStream * pStream)
+ #if defined(STORMLIB_MAC) || defined(STORMLIB_LINUX)
+         close((intptr_t)pStream->Base.File.hFile);
+ #endif
++
++#ifdef STORMLIB_PEOS
++        peos_fclose((uint64_t)(intptr_t)pStream->Base.File.hFile);
++#endif
+     }
+ 
+     // Also invalidate the handle
+diff --git a/src/StormPort.h b/src/StormPort.h
+index f00afd6..73c7cb0 100644
+--- a/src/StormPort.h
++++ b/src/StormPort.h
+@@ -279,6 +279,29 @@
+ 
+ #endif
+ 
++//-----------------------------------------------------------------------------
++// Defines for PeOS: files through PeOS's own calls (FileStream.cpp), the rest
++// of the C library from libpeos-compat
++
++#if !defined(STORMLIB_PLATFORM_DEFINED) && defined(__peos__)
++
++  #include <sys/types.h>
++  #include <stdint.h>
++  #include <stdlib.h>
++  #include <stdio.h>
++  #include <stdarg.h>
++  #include <string.h>
++  #include <strings.h>
++  #include <ctype.h>
++  #include <assert.h>
++  #include <errno.h>
++
++  #define STORMLIB_LITTLE_ENDIAN
++  #define STORMLIB_PEOS
++  #define STORMLIB_PLATFORM_DEFINED
++
++#endif
++
+ //-----------------------------------------------------------------------------
+ // Assumption: If the platform is not defined, assume a Linux-like platform
+ 
