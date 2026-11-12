@@ -51,8 +51,8 @@ with `d2data.mpq` in it.
   as a second disk. [docs/DATA-DISK.md](docs/DATA-DISK.md) shows how for
   each one.
 - **PeOS on a real computer**: you do not even need the image. Format a USB
-  stick as **FAT32** (from PeOS 0.16.0 also **exFAT**) and copy the game
-  files onto it (the list is in
+  stick as **FAT32** (from PeOS 0.16.0 also **exFAT**, and then Diablo II
+  finds the files on it by itself) and copy the game files onto it (the list is in
   [docs/DATA-DISK.md](docs/DATA-DISK.md#a-usb-stick)).
 
 ### 3. Play
@@ -66,9 +66,12 @@ mount ahci0p1 /games/diablo2 fat32
 ```
 
 (on a USB stick the last line is `mount usb /games/diablo2 fat32`).
-From PeOS 0.16.0 the stick can be **exFAT** too (what macOS and Windows
-choose for large sticks), and `mount` finds the format by itself:
-`mount usb /games/diablo2`.
+
+**From PeOS 0.16.0 (d2d.app 1.1.0) no commands are needed for a stick**:
+PeOS mounts a USB stick by itself on `/media1` (FAT32 or **exFAT**, what
+macOS and Windows choose for large sticks), and Diablo II looks for the game
+files there, at the top of the stick or in a folder of it. Plug it in, open
+Diablo II.
 Then open **Diablo II** from the app manager. Your characters and settings
 are saved in PeOS (`/starlight/config/d2d`), not on the data disk.
 

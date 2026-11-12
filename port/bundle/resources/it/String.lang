@@ -3,17 +3,17 @@
 
 nodata.title=I file del gioco non ci sono ancora
 nodata.1=Diablo II si gioca con la tua copia del gioco: i file MPQ
-nodata.2=di Diablo II e Lord of Destruction, patch 1.14d. Vanno nella
-nodata.3=cartella /games/diablo2, su un PeOS installato su disco
-nodata.4=(circa 2 GB: la sessione live non li contiene).
-nodata.5=Per copiarli, da una chiavetta USB in FAT32:
-nodata.6=1. Metti i file in una cartella di nome diablo2 sulla chiavetta.
-nodata.7=2. Collegala e apri Orbit:   mount usb /usb fat32
-nodata.8=3. Poi:   mkdir /games   e   cp -r /usb/diablo2 /games
+nodata.2=di Diablo II e Lord of Destruction, patch 1.14d. Diablo II
+nodata.3=li cerca in /games/diablo2 e sulle chiavette USB collegate
+nodata.4=(in cima alla chiavetta o in una sua cartella).
+nodata.5=Per giocare da una chiavetta USB (exFAT o FAT32):
+nodata.6=1. Copia i file del gioco sulla chiavetta, anche in una cartella.
+nodata.7=2. Collegala: PeOS la apre da solo (in Curiosity: /media1).
+nodata.8=3. Apri di nuovo Diablo II.
 nodata.9=I file: d2data, d2exp, d2char, d2sfx, d2speech, d2music,
 nodata.10=d2xmusic, d2xtalk, d2video, d2xvideo e patch_d2 (.mpq).
 nodata.ok=OK
 
 # PeStore
 store.summary=Diablo II e Lord of Destruction, con la tua copia del gioco.
-store.description=d2decomped, una reimplementazione di Diablo II e Lord of Destruction (1.14d), su PeOS. Si gioca con i file della tua copia del gioco: crea il disco dei dati con lo strumento su github.com/teddi201252/peos-d2d (Windows, macOS, Linux), collegalo e montalo su /games/diablo2.\nLì c'è anche il codice di quest'app (GPL-3.0). Non affiliato a Blizzard Entertainment.
+store.description=d2decomped, una reimplementazione di Diablo II e Lord of Destruction (1.14d), su PeOS. Si gioca con i file della tua copia del gioco: mettili su una chiavetta USB e collegala: Diablo II li trova da solo (oppure il disco dei dati fatto con lo strumento su github.com/teddi201252/peos-d2d, montato su /games/diablo2).\nLì c'è anche il codice di quest'app (GPL-3.0). Non affiliato a Blizzard Entertainment.
