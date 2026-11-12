@@ -72,6 +72,9 @@ Add a disk from the existing image, bus **SATA**.
 On a real computer you can skip the image: format a USB stick (4 GB or
 more) as **FAT32** and copy the files of the table above to it, at the top
 level, not in a folder. In PeOS the stick is `usb` (the first USB disk).
+From PeOS 0.16.0 an **exFAT** stick works too: it is what macOS's Disk
+Utility and Windows choose for sticks over 32 GB, so a new stick usually
+needs no formatting at all.
 
 Writing `d2data.img` to a stick (Balena Etcher, Rufus in DD mode, `dd`)
 works too.
@@ -87,7 +90,9 @@ mount ahci0p1 /games/diablo2 fat32
 ```
 
 (`usb` for a USB stick). Then open Diablo II from the app manager.
-`mount` says `mount: ok` when it worked.
+`mount` says `mount: ok` when it worked. From PeOS 0.16.0 the last word can
+be left out (`mount usb /games/diablo2`): PeOS tells FAT32 from exFAT by
+itself, and an exFAT stick must be mounted that way.
 
 ## If something goes wrong
 
@@ -95,7 +100,8 @@ mount ahci0p1 /games/diablo2 fat32
   `d2data.mpq`? Is Lord of Destruction installed (`d2exp.mpq`)? Is the game
   updated to 1.14d (`patch_d2.mpq`)?
 - **`mount: failed`**: is the disk attached to the virtual machine, on a
-  SATA controller? A USB stick: is it FAT32 (not exFAT or NTFS)?
+  SATA controller? A USB stick: is it FAT32 (not NTFS; exFAT only from
+  PeOS 0.16.0, mounted without `fat32`)?
 - **d2d says it cannot find the game data**: did you mount it on exactly
   `/games/diablo2`?
 - **Python is not found on Windows**: install it from
