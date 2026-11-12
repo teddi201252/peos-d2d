@@ -74,7 +74,10 @@ more) as **FAT32** and copy the files of the table above to it, at the top
 level, not in a folder. In PeOS the stick is `usb` (the first USB disk).
 From PeOS 0.16.0 an **exFAT** stick works too: it is what macOS's Disk
 Utility and Windows choose for sticks over 32 GB, so a new stick usually
-needs no formatting at all.
+needs no formatting at all. PeOS 0.16.0 also mounts a stick by itself on
+`/media1` (`/media2` for a second one), and d2d.app 1.1.0 looks for the game
+there: at the top of the stick or in a folder right under it. Nothing to
+type: plug it in and open Diablo II.
 
 Writing `d2data.img` to a stick (Balena Etcher, Rufus in DD mode, `dd`)
 works too.
@@ -90,9 +93,10 @@ mount ahci0p1 /games/diablo2 fat32
 ```
 
 (`usb` for a USB stick). Then open Diablo II from the app manager.
-`mount` says `mount: ok` when it worked. From PeOS 0.16.0 the last word can
-be left out (`mount usb /games/diablo2`): PeOS tells FAT32 from exFAT by
-itself, and an exFAT stick must be mounted that way.
+`mount` says `mount: ok` when it worked. From PeOS 0.16.0 a USB stick needs
+none of this (it is on `/media1` by itself, see above), and for a disk the
+last word can be left out (`mount ahci0p1 /games/diablo2`): PeOS tells FAT32
+from exFAT by itself.
 
 ## If something goes wrong
 
@@ -101,7 +105,8 @@ itself, and an exFAT stick must be mounted that way.
   updated to 1.14d (`patch_d2.mpq`)?
 - **`mount: failed`**: is the disk attached to the virtual machine, on a
   SATA controller? A USB stick: is it FAT32 (not NTFS; exFAT only from
-  PeOS 0.16.0, mounted without `fat32`)?
+  PeOS 0.16.0)? From PeOS 0.16.0 a stick is mounted by itself on `/media1`,
+  and mounting it again elsewhere fails: there is no need to.
 - **d2d says it cannot find the game data**: did you mount it on exactly
   `/games/diablo2`?
 - **Python is not found on Windows**: install it from

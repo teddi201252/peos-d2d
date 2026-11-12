@@ -3,17 +3,17 @@
 
 nodata.title=The game's files are not here yet
 nodata.1=Diablo II plays with your own copy of the game: the MPQ files
-nodata.2=of Diablo II and Lord of Destruction, patch 1.14d. They go in
-nodata.3=the folder /games/diablo2, on a PeOS installed on a disk
-nodata.4=(about 2 GB: the live session cannot hold them).
-nodata.5=To copy them, from a USB stick formatted as FAT32:
-nodata.6=1. Put the files in a folder named diablo2 on the stick.
-nodata.7=2. Plug it in and open Orbit:   mount usb /usb fat32
-nodata.8=3. Then:   mkdir /games   and   cp -r /usb/diablo2 /games
+nodata.2=of Diablo II and Lord of Destruction, patch 1.14d. Diablo II
+nodata.3=looks for them in /games/diablo2 and on the USB sticks plugged in
+nodata.4=(at the top of the stick or in a folder of it).
+nodata.5=To play from a USB stick (exFAT or FAT32):
+nodata.6=1. Copy the game files onto the stick, in a folder if you like.
+nodata.7=2. Plug it in: PeOS opens it by itself (in Curiosity: /media1).
+nodata.8=3. Open Diablo II again.
 nodata.9=The files: d2data, d2exp, d2char, d2sfx, d2speech, d2music,
 nodata.10=d2xmusic, d2xtalk, d2video, d2xvideo and patch_d2 (.mpq).
 nodata.ok=OK
 
 # PeStore
 store.summary=Diablo II and Lord of Destruction, with your own copy of the game.
-store.description=d2decomped, a reimplementation of Diablo II and Lord of Destruction (1.14d), on PeOS. It plays with your own game files: make the data disk with the tool at github.com/teddi201252/peos-d2d (Windows, macOS, Linux), attach it and mount it on /games/diablo2.\nThe source of this app is there too (GPL-3.0). Not affiliated with Blizzard Entertainment.
+store.description=d2decomped, a reimplementation of Diablo II and Lord of Destruction (1.14d), on PeOS. It plays with your own game files: put them on a USB stick and plug it in: Diablo II finds them by itself (or the data disk made with the tool at github.com/teddi201252/peos-d2d, mounted on /games/diablo2).\nThe source of this app is there too (GPL-3.0). Not affiliated with Blizzard Entertainment.

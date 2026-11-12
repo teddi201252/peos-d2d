@@ -61,20 +61,32 @@ index 9f73be0..d6d0a9e 100644
  # start_sentry looks for the handler beside d2d; the packages put it there,
  # this does for the build tree (sentry_init fails without it).
 diff --git a/apps/d2d/main.cpp b/apps/d2d/main.cpp
-index bfd6f63..bcfc948 100644
+index bfd6f63..4144195 100644
 --- a/apps/d2d/main.cpp
 +++ b/apps/d2d/main.cpp
-@@ -35,6 +35,9 @@
+@@ -35,6 +35,10 @@
  #include "ui.hpp"
  #include "video.hpp"
  #include "watchdog.hpp"
 +#ifdef __peos__
++#include "peos/find_data.hpp"
 +#include "peos/no_data.hpp"
 +#endif
  #include "window.hpp"
  #include "world_view.hpp"
  
-@@ -1875,7 +1878,13 @@ int main(int argc, char** argv) {
+@@ -1868,6 +1872,10 @@ int main(int argc, char** argv) {
+     // The MPQs: first hit wins, each a hard stop (install-detect.md,
+     // decision 5). No guessing: the launcher writes `data =` into d2d.cfg.
+     {
++#ifdef __peos__
++        // PeOS: not in /games/diablo2? On a stick, then (peos/find_data.hpp).
++        data_dir_str = d2d::peos_port::find_data(data_dir_str);
++#endif
+         const char* env = std::getenv("D2_MPQ_DIR");
+         const char* base = SDL_GetBasePath();
+         std::error_code cwd_ec;
+@@ -1875,7 +1883,13 @@ int main(int argc, char** argv) {
                                                            fs::current_path(cwd_ec), cfg["data"]);
          if (!found.error.empty()) {
              d2d::log::error("{}", found.error);
@@ -88,7 +100,7 @@ index bfd6f63..bcfc948 100644
          }
          data_dir = found.dir;
          d2d::log::info("  Data dir: {} ({})", data_dir.string(), found.from);
-@@ -1890,6 +1899,12 @@ int main(int argc, char** argv) {
+@@ -1890,6 +1904,12 @@ int main(int argc, char** argv) {
      auto scene = load_scene(data_dir, patch_layer);   // the menus' part; nullopt if the MPQs won't load
      // Nothing to run without them: say so (the log has which MPQ and why)
      // rather than go on to a game with no data.
@@ -101,17 +113,66 @@ index bfd6f63..bcfc948 100644
      if (!scene) {
          const auto message = std::format("Couldn't load the Diablo II game data from\n{}\n\n"
                                           "Check that its MPQ files are complete, readable copies from Diablo II. "
+diff --git a/apps/d2d/peos/find_data.hpp b/apps/d2d/peos/find_data.hpp
+new file mode 100644
+index 0000000..670547a
+--- /dev/null
++++ b/apps/d2d/peos/find_data.hpp
+@@ -0,0 +1,43 @@
++// SPDX-License-Identifier: GPL-3.0-or-later
++// PeOS only: where the game's MPQs are (PeOS 0.16.0). First the folder d2d.app
++// is given (--data /games/diablo2); if d2data.mpq is not there, the USB sticks
++// PeOS mounts by itself on /media1 ... /media4: the top of each, then each
++// folder right under it ("diablo2", "Diablo II Complete Edition", ...).
++// The app's manifest grants /media1 ... /media4 for reading.
++//
++// TODO(PeOS): when Curiosity has a global file picker (a folder chooser any
++// app can open), this search gives way to asking once: "where is Diablo II?",
++// the folder kept in d2d.cfg (`data =`), and the no-data page's button opens
++// the picker. Until then, a stick is searched every time the game starts.
++#pragma once
++
++#include <filesystem>
++#include <string>
++#include <system_error>
++
++namespace d2d::peos_port {
++
++inline bool has_mpqs(const std::filesystem::path& dir) {
++    std::error_code ec;
++    return std::filesystem::is_regular_file(dir / "d2data.mpq", ec);
++}
++
++// The folder with d2data.mpq: preferred if it has it, else the first found on
++// a stick; preferred again (the no-data page follows) if none.
++inline std::string find_data(const std::string& preferred) {
++    namespace fs = std::filesystem;
++    if (preferred.empty() || has_mpqs(preferred)) return preferred;
++    for (int n = 1; n <= 4; ++n) {
++        const fs::path stick = "/media" + std::to_string(n);
++        std::error_code ec;
++        if (!fs::is_directory(stick, ec)) continue;
++        if (has_mpqs(stick)) return stick.string();
++        for (fs::directory_iterator it(stick, ec), end; !ec && it != end; it.increment(ec)) {
++            std::error_code dec;
++            if (it->is_directory(dec) && has_mpqs(it->path())) return it->path().string();
++        }
++    }
++    return preferred;
++}
++
++}  // namespace d2d::peos_port
 diff --git a/apps/d2d/peos/no_data.hpp b/apps/d2d/peos/no_data.hpp
 new file mode 100644
-index 0000000..0a7f7e1
+index 0000000..994dbd0
 --- /dev/null
 +++ b/apps/d2d/peos/no_data.hpp
 @@ -0,0 +1,66 @@
 +// SPDX-License-Identifier: GPL-3.0-or-later
-+// PeOS only: the window d2d.app shows when the game's MPQs are not in
-+// /games/diablo2 (d2decomped port, phase 6). Where they go and how to copy
-+// them there, in the language Starlight has (the bundle's resources/<lang>/
-+// String.lang), and OK, which closes the app. A Starlight page (SLUI), not
++// PeOS only: the window d2d.app shows when the game's MPQs are neither in
++// /games/diablo2 nor on a stick (d2decomped port, phase 6; peos/find_data.hpp).
++// Where they go, in the language Starlight has (the bundle's
++// resources/<lang>/String.lang), and OK, which closes the app. A Starlight page (SLUI), not
 +// the game's: nothing of the game is loaded.
 +#pragma once
 +
